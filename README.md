@@ -65,11 +65,14 @@ chromium --proxy-server="socks5://127.0.0.1:1080"
 --iface  wg0              kernel バックエンドのインターフェース名
 --email  you@example.com  アカウントのメール
 --api-proxy <url>         API 呼び出しだけをこのプロキシ経由にする(socks5h://host:port / http://host:port)
+--control <addr>          制御エンドポイント(unix:path / host:port)。既定は state 隣の control.sock
+--connect <addr>          既に動いているサービスに TUI を接続する(トンネルは持たない)
 --no-tui                  TUI を出さずログだけ
 -v                        詳細ログ
 ```
 
-環境変数 `IPVRELAY_STATE`(状態ファイルの場所)と `IPVRELAY_API_PROXY`(`--api-proxy` と同じ)も使える。
+環境変数 `IPVRELAY_STATE`(状態ファイルの場所)、`IPVRELAY_API_PROXY`(`--api-proxy` と同じ)、
+`IPVRELAY_CONTROL`(`--control` と同じ)も使える。
 
 ## 仕組み
 
@@ -117,6 +120,15 @@ doas install -m 755 deploy/ipvrelay.openrc /etc/init.d/ipvrelay
 doas rc-update add ipvrelay default
 doas rc-service ipvrelay start
 ```
+
+サービスは headless で常駐し、制御ソケットを開く。切替は TUI を
+クライアントとして接続して行う(サービスは止まらない)。
+
+```sh
+ipvrelay --connect unix:$HOME/.local/state/ipvrelay/control.sock
+```
+
+`q` で抜けるのは TUI だけで、トンネルは動き続ける。
 
 ## 注意
 

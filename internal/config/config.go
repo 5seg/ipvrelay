@@ -48,6 +48,16 @@ func Path() (string, error) {
 	return filepath.Join(dir, "ipvrelay", "state.json"), nil
 }
 
+// Dir returns the directory the state file lives in. The control socket sits
+// beside it, so the UI and the service agree on a location without config.
+func Dir() (string, error) {
+	path, err := Path()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(path), nil
+}
+
 // Load reads the state file. A missing file is not an error: it returns an
 // empty State so the caller can run the first-time flow.
 func Load() (State, error) {

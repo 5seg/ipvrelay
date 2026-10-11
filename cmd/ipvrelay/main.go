@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"ipvrelay/internal/apiproxy"
 	"ipvrelay/internal/backend"
 	"ipvrelay/internal/config"
+	"ipvrelay/internal/control"
 	"ipvrelay/internal/proxy"
 	"ipvrelay/internal/relay"
 	"ipvrelay/internal/tui"
@@ -38,6 +40,8 @@ func run() error {
 		iface       = flag.String("iface", "wg0", "kernel WireGuard interface name")
 		email       = flag.String("email", "", "IPVanish account email (prompted when missing)")
 		apiProxy    = flag.String("api-proxy", "", "route API calls through this proxy (socks5h://host:port or http://host:port)")
+		controlAddr = flag.String("control", "", "control endpoint for a connecting UI (unix:path or host:port; default beside the state file)")
+		connectAddr = flag.String("connect", "", "run the TUI against a running service instead of owning the tunnel")
 		noTUI       = flag.Bool("no-tui", false, "run headless and log to stderr")
 		verbose     = flag.Bool("v", false, "verbose logging")
 	)
@@ -47,6 +51,18 @@ func run() error {
 		if *verbose || *noTUI {
 			fmt.Fprintf(os.Stderr, "["+time.Now().Format("15:04:05")+"] "+format+"\n", args...)
 		}
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Client mode: the TUI is only a view onto a service that owns the tunnel.
+	if *connectAddr != "" {
+		client, err := control.Dial(*connectAddr)
+		if err != nil {
+			return err
+		}
+		return tui.Run(ctx, client, 3*time.Second)
 	}
 
 	state, err := config.Load()
@@ -83,9 +99,6 @@ func run() error {
 	}
 	api := vpnapi.New(opts...)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	be, err := backend.Detect(ctx, backend.Options{
 		Prefer: *backendName,
 		Iface:  *iface,
@@ -114,6 +127,19 @@ func run() error {
 	}
 	defer relaySvc.Close()
 
+	// Let a separate TUI process drive this service.
+	if addr := resolveControlAddr(*controlAddr); addr != "" {
+		if ln, err := control.Listen(addr); err != nil {
+			logf("control endpoint disabled: %v", err)
+		} else {
+			go func() {
+				if err := control.Serve(ctx, ln, relaySvc, logf); err != nil {
+					logf("control endpoint stopped: %v", err)
+				}
+			}()
+		}
+	}
+
 	errCh := make(chan error, 2)
 	go func() { errCh <- proxySrv.Serve(ctx) }()
 
@@ -135,6 +161,21 @@ func run() error {
 		}
 	}()
 	return tui.Run(ctx, relaySvc, 3*time.Second)
+}
+
+// resolveControlAddr picks the control endpoint: explicit flag, then env, then
+// a Unix socket beside the state file (which both service and UI know).
+func resolveControlAddr(flagVal string) string {
+	if flagVal != "" {
+		return flagVal
+	}
+	if env := os.Getenv("IPVRELAY_CONTROL"); env != "" {
+		return env
+	}
+	if dir, err := config.Dir(); err == nil {
+		return "unix:" + filepath.Join(dir, "control.sock")
+	}
+	return ""
 }
 
 // promptLine reads a single line from the terminal.

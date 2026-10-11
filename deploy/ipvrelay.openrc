@@ -12,7 +12,7 @@ name="ipvrelay"
 description="SOCKS5 proxy whose exit is an IPVanish WireGuard server"
 
 command="/usr/local/bin/ipvrelay"
-command_args="--no-tui --listen ${IPVRELAY_LISTEN:-127.0.0.1:1080}"
+command_args="--no-tui --listen ${IPVRELAY_LISTEN:-127.0.0.1:1080} --control ${IPVRELAY_CONTROL:-unix:/home/${IPVRELAY_USER:-user}/.local/state/ipvrelay/control.sock}"
 command_user="${IPVRELAY_USER:-user}"
 
 pidfile="/run/${RC_SVCNAME}.pid"
@@ -24,7 +24,7 @@ export IPVRELAY_STATE="${IPVRELAY_STATE:-/home/${command_user}/.local/state/ipvr
 
 depend() {
 	need net
-	after firewall
+	after firewall tailscale
 }
 
 start_pre() {
