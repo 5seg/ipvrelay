@@ -112,6 +112,11 @@ func WithBaseURL(u string) Option { return func(c *Client) { c.baseURL = u } }
 // WithAPIKey overrides the embedded app credential.
 func WithAPIKey(k string) Option { return func(c *Client) { c.apiKey = k } }
 
+// WithHTTPClient routes control-plane traffic through a custom client, which
+// is how the API stays reachable from hosts whose own address Cloudflare
+// rejects.
+func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.http = h } }
+
 // New returns a Client. The token is empty until Login or SetToken is called.
 func New(opts ...Option) *Client {
 	c := &Client{
@@ -130,6 +135,15 @@ func (c *Client) SetToken(access string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.accessToken = access
+}
+
+// SetHTTPClient swaps the transport used for control-plane calls. The relay
+// uses it to move API traffic onto the tunnel once one is up, which is the only
+// way to reach the API from hosts Cloudflare rejects.
+func (c *Client) SetHTTPClient(h *http.Client) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.http = h
 }
 
 func (c *Client) token() string {

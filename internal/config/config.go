@@ -27,6 +27,9 @@ type State struct {
 	Backend string `json:"backend,omitempty"`
 	// LastServer is the hostname to reconnect to on start.
 	LastServer string `json:"last_server,omitempty"`
+	// Assignment is the last WireGuard assignment that worked. See
+	// assignment.go for why it is kept.
+	Assignment *Assignment `json:"assignment,omitempty"`
 }
 
 // Path returns the state file location, honouring IPVRELAY_STATE.

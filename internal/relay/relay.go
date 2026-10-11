@@ -90,7 +90,16 @@ func (r *Relay) Start(ctx context.Context) error {
 		return err
 	}
 	if err := r.refreshServers(ctx); err != nil {
-		return err
+		// Cloudflare blocks the API from plenty of datacenter ranges. If an
+		// assignment from a previous run is still around, rebuild the tunnel
+		// with it and move the API onto the tunnel, where it is reachable.
+		r.logf("server list failed (%v), trying the cached assignment", err)
+		if bootErr := r.bootstrap(ctx); bootErr != nil {
+			return fmt.Errorf("%w; cached assignment did not help: %v", err, bootErr)
+		}
+		if err := r.refreshServers(ctx); err != nil {
+			return err
+		}
 	}
 
 	target := r.state.LastServer
@@ -243,6 +252,7 @@ func (r *Relay) switchTo(ctx context.Context, hostname string) error {
 	r.mu.Unlock()
 
 	r.state.LastServer = hostname
+	r.state.SetAssignment(cfg)
 	if err := config.Save(r.state); err != nil {
 		r.logf("state save failed: %v", err)
 	}
@@ -257,6 +267,31 @@ func (r *Relay) switchTo(ctx context.Context, hostname string) error {
 		r.mu.Unlock()
 		r.logf("switched to %s (exit %s) in %s", hostname, exit, time.Since(start).Round(time.Millisecond))
 	}
+	return nil
+}
+
+// bootstrap brings the tunnel up from the assignment saved by an earlier run
+// and then routes API traffic through it.
+func (r *Relay) bootstrap(ctx context.Context) error {
+	cached, ok := r.state.LastAssignment()
+	if !ok {
+		return errors.New("no cached assignment")
+	}
+	if err := r.be.Configure(ctx, cached); err != nil {
+		return err
+	}
+	if err := r.waitReady(ctx); err != nil {
+		return err
+	}
+	r.api.SetHTTPClient(&http.Client{
+		Timeout:   30 * time.Second,
+		Transport: &http.Transport{DialContext: r.be.DialContext, ForceAttemptHTTP2: true},
+	})
+	r.mu.Lock()
+	r.current = r.state.LastServer
+	r.updatedAt = time.Now()
+	r.mu.Unlock()
+	r.logf("tunnel restored from the cached assignment; API traffic now leaves through it")
 	return nil
 }
 

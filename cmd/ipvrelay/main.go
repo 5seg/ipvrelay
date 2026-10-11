@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"ipvrelay/internal/apiproxy"
 	"ipvrelay/internal/backend"
 	"ipvrelay/internal/config"
 	"ipvrelay/internal/proxy"
@@ -36,6 +37,7 @@ func run() error {
 		backendName = flag.String("backend", "", "tunnel backend: kernel, userspace, or empty to auto-detect")
 		iface       = flag.String("iface", "wg0", "kernel WireGuard interface name")
 		email       = flag.String("email", "", "IPVanish account email (prompted when missing)")
+		apiProxy    = flag.String("api-proxy", "", "route API calls through this proxy (socks5h://host:port or http://host:port)")
 		noTUI       = flag.Bool("no-tui", false, "run headless and log to stderr")
 		verbose     = flag.Bool("v", false, "verbose logging")
 	)
@@ -64,10 +66,22 @@ func run() error {
 		return errors.New("no account email given")
 	}
 
-	api := vpnapi.New()
+	opts := []vpnapi.Option{}
 	if state.APIToken != "" {
-		api = vpnapi.New(vpnapi.WithAPIKey(state.APIToken))
+		opts = append(opts, vpnapi.WithAPIKey(state.APIToken))
 	}
+	if envProxy := os.Getenv("IPVRELAY_API_PROXY"); *apiProxy == "" && envProxy != "" {
+		*apiProxy = envProxy
+	}
+	if *apiProxy != "" {
+		hc, err := apiproxy.Client(*apiProxy, 30*time.Second)
+		if err != nil {
+			return err
+		}
+		opts = append(opts, vpnapi.WithHTTPClient(hc))
+		logf("API traffic routed through %s", *apiProxy)
+	}
+	api := vpnapi.New(opts...)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

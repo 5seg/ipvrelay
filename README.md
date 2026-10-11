@@ -64,9 +64,12 @@ chromium --proxy-server="socks5://127.0.0.1:1080"
 --backend kernel|userspace|auto   auto が既定。特権があれば kernel
 --iface  wg0              kernel バックエンドのインターフェース名
 --email  you@example.com  アカウントのメール
+--api-proxy <url>         API 呼び出しだけをこのプロキシ経由にする(socks5h://host:port / http://host:port)
 --no-tui                  TUI を出さずログだけ
 -v                        詳細ログ
 ```
+
+環境変数 `IPVRELAY_STATE`(状態ファイルの場所)と `IPVRELAY_API_PROXY`(`--api-proxy` と同じ)も使える。
 
 ## 仕組み
 
@@ -81,6 +84,39 @@ chromium --proxy-server="socks5://127.0.0.1:1080"
   サーバー単位で正確。
 - **失効対策**: 割り当ては時間が経つと通らなくなる。30秒ごとにトンネルの疎通を見て、
   2回続けて失敗したら同じサーバーで割り当てを取り直す。
+
+## データセンターの IP から使う場合
+
+Cloudflare は多くのデータセンターの IP から `api.ipvanish.com` へのアクセスを 403 で弾く。
+そのホストでは API が直接叩けないので、次の順で自動的に回避する。
+
+1. **保存済みの割り当てでトンネルを立てる** — 前回動いた WireGuard の割り当てを
+   状態ファイルに保存してあるので、それでトンネルを張る。
+2. **API の通信をトンネルに載せる** — トンネルが上がれば API は到達可能になる。
+   以後の一覧取得も切り替えも、この経路で普通に動く。
+
+初回だけは割り当てが必要なので、API が叩けるマシンで一度起動して
+`~/.local/state/ipvrelay/state.json` をコピーする。
+
+別のマシンを踏み台にする場合は `--api-proxy` を使う。
+
+```sh
+# API が通るマシンで SOCKS5 を立てておく(--listen 0.0.0.0:1080 など)
+./ipvrelay --api-proxy socks5h://100.100.123.66:1080
+```
+
+どちらの経路も無い場合、切り替え時にだけ失敗する(既存のトンネルは動き続ける)。
+
+## 常駐させる
+
+`deploy/ipvrelay.openrc` に OpenRC のサービス定義がある(root で導入)。
+
+```sh
+doas install -m 755 ipvrelay /usr/local/bin/ipvrelay
+doas install -m 755 deploy/ipvrelay.openrc /etc/init.d/ipvrelay
+doas rc-update add ipvrelay default
+doas rc-service ipvrelay start
+```
 
 ## 注意
 
