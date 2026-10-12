@@ -128,7 +128,8 @@ doas rc-service ipvrelay start
 ipvrelay --connect unix:$HOME/.local/state/ipvrelay/control.sock
 ```
 
-`q` で抜けるのは TUI だけで、トンネルは動き続ける。
+サービスが動いていれば、引数なしの `ipvrelay` は自動でそれに接続する
+(二重にトンネルを張らない)。`q` で抜けるのは TUI だけで、トンネルは動き続ける。
 
 ## 注意
 

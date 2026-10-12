@@ -57,8 +57,16 @@ func run() error {
 	defer stop()
 
 	// Client mode: the TUI is only a view onto a service that owns the tunnel.
-	if *connectAddr != "" {
-		client, err := control.Dial(*connectAddr)
+	// When a service is already running at the default endpoint, a plain
+	// interactive run attaches to it instead of starting a second tunnel.
+	connect := *connectAddr
+	if connect == "" && !*noTUI && isTerminal(os.Stdin) {
+		if addr := resolveControlAddr(""); addr != "" && control.Live(addr) {
+			connect = addr
+		}
+	}
+	if connect != "" {
+		client, err := control.Dial(connect)
 		if err != nil {
 			return err
 		}
@@ -161,6 +169,15 @@ func run() error {
 		}
 	}()
 	return tui.Run(ctx, relaySvc, 3*time.Second)
+}
+
+// isTerminal reports whether f is attached to a character device (a tty).
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 // resolveControlAddr picks the control endpoint: explicit flag, then env, then

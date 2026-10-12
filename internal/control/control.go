@@ -23,17 +23,35 @@ import (
 )
 
 // Listen opens the control endpoint. "unix:path" (or "unix://path") binds a
-// Unix socket; anything else is treated as a TCP host:port.
+// Unix socket; anything else is treated as a TCP host:port. A socket already
+// served by another process is refused rather than stolen.
 func Listen(addr string) (net.Listener, error) {
 	network, target, err := splitAddr(addr)
 	if err != nil {
 		return nil, err
 	}
 	if network == "unix" {
-		// Drop a socket left behind by a previous run.
+		if Live(addr) {
+			return nil, fmt.Errorf("control: %s is already served by another process", target)
+		}
+		// Only a stale socket file is left here; drop it before rebinding.
 		_ = os.Remove(target)
 	}
 	return net.Listen(network, target)
+}
+
+// Live reports whether a control endpoint is accepting connections.
+func Live(addr string) bool {
+	network, target, err := splitAddr(addr)
+	if err != nil {
+		return false
+	}
+	c, err := net.DialTimeout(network, target, 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	c.Close()
+	return true
 }
 
 // Serve serves the control API on ln until ctx is cancelled or the listener
